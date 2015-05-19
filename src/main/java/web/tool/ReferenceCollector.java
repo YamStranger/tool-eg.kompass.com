@@ -5,6 +5,7 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import selenium.WebDriverHub;
 import web.tool.eg.kompass.com.Kompass;
 
 import java.util.Calendar;
@@ -21,20 +22,34 @@ public class ReferenceCollector implements Callable<List<String>> {
     private final String keyword;
     private final Integer startPage;
     private final Integer endPage;
-    private final WebDriver driver;
-    private final WebDriverWait wait;
+    private final WebDriverHub hub;
     private static final Logger logger = LoggerFactory.getLogger(ReferenceCollector.class);
+    private boolean waiting;
+    private final Dates created;
 
-    public ReferenceCollector(String keyword, Integer startPage, Integer endPage, WebDriver driver, WebDriverWait wait) {
+    public ReferenceCollector(WebDriverHub hub, String keyword, Integer startPage, Integer endPage) {
         this.keyword = keyword;
         this.startPage = startPage;
         this.endPage = endPage;
-        this.driver = driver;
-        this.wait = wait;
+        this.hub = hub;
+        this.waiting = true;
+        this.created = new Dates();
+    }
+
+    public boolean waiting() {
+        return this.waiting;
+    }
+
+    public long age() {
+        return this.created.difference(new Dates(), Calendar.SECOND);
     }
 
     @Override
     public List<String> call() throws Exception {
+        final WebDriver driver = this.hub.driver(); //waits until new one available
+        final WebDriverWait wait = this.hub.driverWait(driver);
+        this.waiting = false;
+        logger.trace("ReferenceCollector started");
         try {
             List<String> companies = new LinkedList<>();
             final Kompass kompass = new Kompass(driver, wait);

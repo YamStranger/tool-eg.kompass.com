@@ -56,6 +56,7 @@ public class Main {
         String LOGIN = "login";
         String PASSWORD = "password";
         String LOGIN_INSTANCES = "logIn_instances";
+        String NOT_LOGIN_INSTANCES = "not_logIn_instances";
         String SESSION = "session";
         String KEYWORD_FILE = "keyword_file";
         String MAX_PAGE_LOAD_TIME = "max_page_load_time";
@@ -73,11 +74,13 @@ public class Main {
         logger.info("user:-" + LOGIN);
         logger.info("user:-" + PASSWORD);
         logger.info("user:-" + LOGIN_INSTANCES);
+        logger.info("user:-" + NOT_LOGIN_INSTANCES);
         logger.info("user:-" + SESSION);
         logger.info("user:-" + KEYWORD_FILE);
         logger.info("user:-" + MAX_PAGE_LOAD_TIME);
         logger.info("user:-" + REMOTE);
         logger.info("user:-" + REUSE_BROWSERS);
+
         logger.info("user:Read:");
         Path configFile = Paths.get(config);
         List<String> configs = new LinkedList<>();
@@ -108,6 +111,8 @@ public class Main {
                 writer.newLine();
                 writer.write("-" + LOGIN_INSTANCES + "=1");
                 writer.newLine();
+                writer.write("-" + NOT_LOGIN_INSTANCES + "=1");
+                writer.newLine();
                 writer.write("-" + SESSION + "=example_session");
                 writer.newLine();
                 writer.write("-" + KEYWORD_FILE + "=key_words_file_name_example");
@@ -136,6 +141,7 @@ public class Main {
         String login = arguments.get(LOGIN);
         String password = arguments.get(PASSWORD);
         String logInInstances = arguments.get(LOGIN_INSTANCES);
+        String notLogInInstances = arguments.get(NOT_LOGIN_INSTANCES);
         String session = arguments.get(SESSION);
         String maxPageLoadTime = arguments.get(MAX_PAGE_LOAD_TIME);
         String remote = arguments.get(REMOTE);
@@ -148,7 +154,9 @@ public class Main {
                 (session == null || session.isEmpty()) ||
                 (maxPageLoadTime == null || maxPageLoadTime.isEmpty()) ||
                 (remote == null || remote.isEmpty()) ||
-                (reuse == null || reuse.isEmpty())
+                (reuse == null || reuse.isEmpty()) ||
+                (notLogInInstances == null || notLogInInstances.isEmpty())
+
 
                 ) {
             logger.error("user:please specify all params");
@@ -184,6 +192,14 @@ public class Main {
             logger.error("user:" + LOGIN_INSTANCES + " it not number");
             return;
         }
+        int numberNotLogIn = 1;
+        try {
+            numberNotLogIn = Integer.valueOf(numberNotLogIn);
+        } catch (Exception e) {
+            logger.error("user:" + NOT_LOGIN_INSTANCES + " it not number");
+            return;
+        }
+
         int pageLoadTime = 1;
         try {
             pageLoadTime = Integer.valueOf(maxPageLoadTime);
@@ -204,7 +220,7 @@ public class Main {
         Dates start = new Dates();
         WebDriverHub notSecure = new WebDriverHub(isReusable, isRemote);
         if (!isRemote) {
-            notSecure.available(90);
+            notSecure.available(numberNotLogIn);
         }
         WebDriverHub secure = new WebDriverHub(isReusable, isRemote);
         secure.available(numberLogIn);
@@ -230,7 +246,7 @@ public class Main {
         Path result = Paths.get(session + "_companies.csv");
         CSVStorage storage = new CSVStorage(result, results, true);
         storage.start();
-        Dispatcher dispatcher = new Dispatcher(session, keyword, login, password, results, 90, secure, notSecure);
+        Dispatcher dispatcher = new Dispatcher(session, keyword, login, password, results, numberNotLogIn + numberLogIn, secure, notSecure);
         dispatcher.start();
         dispatcher.join();
         logger.info("user:done, takes " + new Dates().difference(start, Calendar.SECOND) + " seconds");
