@@ -1,0 +1,1 @@
+C:\Java\jdk8.5\bin\java.exe -Dfile.encoding=UTF-8  -cp "server\lib\*;server\*" org.openqa.grid.selenium.GridLauncher -role hub -port 4444 -maxSession 90

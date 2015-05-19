@@ -1,0 +1,2 @@
+C:\Java\jdk8.5\bin\java.exe -cp "*" org.openqa.grid.selenium.GridLauncher -role hub -port 4444
+C:\Java\jdk8.5\bin\java.exe -cp "*" org.openqa.grid.selenium.GridLauncher -role node -hub http://localhost:4444/grid/register -browser browserName=chrome,version=ANY,platform=WINDOWS,maxInstances=2 -Dwebdriver.chrome.driver="chrome-web-driver\chromedriver.exe"

@@ -1,0 +1,1 @@
+C:\Java\jdk8.5\bin\java.exe -Dwebdriver.chrome.driver=searcher\chrome-web-driver\chromedriver.exe -Dfile.encoding=UTF-8  -cp "searcher\lib\*;searcher\*" web.tool.Main -config=config.cfg
