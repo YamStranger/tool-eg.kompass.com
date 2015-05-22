@@ -68,7 +68,7 @@ public class Companies {
             }
         } catch (ElementNotFoundException e) {
             //site is absent
-            logger.error("user:site is not present " + url);
+            logger.error("site is not present " + url);
         }
 
         try {
@@ -79,7 +79,7 @@ public class Companies {
             }
         } catch (ElementNotFoundException e) {
             //fax is absent
-            logger.error("user:fax is absent " + url);
+            logger.error("fax is absent " + url);
         }
         try {
             List<WebElement> mailElements = this.mailSearch.all(coordinates);
@@ -87,7 +87,7 @@ public class Companies {
                 //check if emails are hiden
                 if (!this.mailHiddenSearch.all(coordinates).isEmpty()) {
                     isNeedAuthorization = true;
-                    logger.error("user:need authorization for " + url);
+                    logger.error("need authorization for " + url);
                 }
             }
             for (final WebElement element : mailElements) {
@@ -96,14 +96,14 @@ public class Companies {
             }
         } catch (ElementNotFoundException e) {
             //mail is absent
-            logger.info("user:mail is absent " + url);
+            logger.info("mail is absent " + url);
         }
         try {
             WebElement button = this.phonesSearch.one(information);
             phones.add(button.getAttribute("href").replaceAll("\\D+", ""));
         } catch (ElementNotFoundException e) {
             //phone is absent
-            logger.info("user:phone is absent " + url);
+            logger.info("phone is absent " + url);
         }
 
         return new Company(name, address, phones, faxes, mails, website, url, isNeedAuthorization, isLogined);

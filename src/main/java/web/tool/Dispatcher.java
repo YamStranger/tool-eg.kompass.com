@@ -59,11 +59,12 @@ public class Dispatcher extends Thread {
             logger.info("user:start search \"" + this.keyword + '"' + ", session=\"" + this.session + '"');
 
 
-            final int pages = countAllPages(this.keyword, this.login, this.password);
-            int companies = pages * 20;//197514
+            final int companies = countResults(this.keyword, this.login, this.password);
+            int pages = (int) Math.ceil(((double) companies) / ((double) 20));
+            ;//197514
             Path allRefs = Paths.get(session + "known_references.bin");
             //loading refs
-            companies = this.readRefs(allRefs, pages, companies, keyword, this.session, executor);
+            this.readRefs(allRefs, pages, companies, keyword, this.session, executor);
             logger.info("user:updated number of companies " + companies);
 
             //loading data
@@ -95,46 +96,49 @@ public class Dispatcher extends Thread {
         Queue<String> privates = new LinkedList<>();
         final Map<Future, CompanyDataReader> ages = new HashMap<>();
 
-        int read = 0;
+        int read = -1;
         int remaining = companies;
         while (rows.hasNext() || !processingTasks.isEmpty()) {
-            if (rows.hasNext()) {
-                final String url = rows.next();
-                if (!companiesCollector.contains(url)) {
-                    if (read == 0) {
-                        remaining -= companiesCollector.values().size();
+            if (processingTasks.size() < 1000) {
+                if (rows.hasNext()) {
+                    final String url = rows.next();
+                    if (!companiesCollector.contains(url)) {
+                        if (read == -1) {
+                            remaining -= companiesCollector.values().size();
+                            read = 0;
+                        }
+                        //start processing url as public company
+                        CompanyDataReader reader = new CompanyDataReader(url, this.notSecure);
+                        Future<Company> future = executor.submit(reader);
+                        processingTasks.put(url, future);
+                        ages.put(future, reader);
+                    } else {
+                        logger.info("skip as known " + url);
                     }
-                    //start processing url as public company
-                    CompanyDataReader reader = new CompanyDataReader(url, this.notSecure);
+                }
+
+
+                while (!failed.isEmpty()) {
+                    //restart failed
+                    final String url = failed.poll();
+                    //start processing url as private company
+                    CompanyDataReader reader = new CompanyDataReader(url, this.secure);
                     Future<Company> future = executor.submit(reader);
                     processingTasks.put(url, future);
                     ages.put(future, reader);
-                } else {
-                    logger.info("user:skip as known " + url);
+                }
+
+                while (!privates.isEmpty()) {
+                    //restart private company
+                    final String url = privates.poll();
+                    //login, password;
+                    //start processing url as private company
+                    CompanyDataReader reader = new CompanyDataReader(url, this.secure, login, password);
+                    Future<Company> future = executor.submit(reader);
+                    processingTasks.put(url, future);
+                    ages.put(future, reader);
                 }
             }
-
-            while (!failed.isEmpty()) {
-                //restart failed
-                final String url = failed.poll();
-                //start processing url as private company
-                CompanyDataReader reader = new CompanyDataReader(url, this.secure, login, password);
-                Future<Company> future = executor.submit(reader);
-                processingTasks.put(url, future);
-                ages.put(future, reader);
-            }
-
-            while (!privates.isEmpty()) {
-                //restart private company
-                final String url = privates.poll();
-                //login, password;
-                //start processing url as private company
-                CompanyDataReader reader = new CompanyDataReader(url, this.secure, login, password);
-                Future<Company> future = executor.submit(reader);
-                processingTasks.put(url, future);
-                ages.put(future, reader);
-            }
-
             //processing started, checking results;
             Iterator<Map.Entry<String, Future<Company>>> processingIterator = processingTasks.entrySet().iterator();
             while (processingIterator.hasNext()) {
@@ -166,20 +170,28 @@ public class Dispatcher extends Thread {
                             last.add(Calendar.SECOND, seconds);
                             last.add(Calendar.MINUTE, min);
                             last.add(Calendar.HOUR, hour);
-                            logger.info("user: step(2/2) read " + read + ", companies will be read in " + word + ", near " + last + ", remaining " + (remaining - read) + " companies from " + companies);
+                            logger.info("user: step(2/2) read " + read +
+                                    ", companies will be read in " + word +
+                                    ", near " + last + ", remaining " +
+                                    (remaining - read) + " companies from " +
+                                    companies + ", current speed " + (int) (60 / speed)
+                                    + " per minute");
                             processingIterator.remove();
                             results.put(company);
                             ages.remove(future);
                         } else {
-                            logger.info("user:company  " + url + " is marked as private");
+                            logger.info("company  " + url + " is marked as private");
                             privates.add(company.url);
                         }
                     } else {
                         CompanyDataReader collector = ages.get(future);
                         if (collector != null) {
-                            if (collector.waiting() && collector.age() > 60) {
+                            if (collector.waiting() && collector.age() > 120) {
                                 future.cancel(true);
+                                collector.kill();
                                 ages.remove(future);
+                                failed.add(url);
+                                processingIterator.remove();
                             }
                         }
                     }
@@ -219,17 +231,19 @@ public class Dispatcher extends Thread {
         int read = -1;
         int remaining = companies;
         while (!tasks.isEmpty() || !processingTasks.isEmpty()) {
-            final Pair<Integer, Integer> range = tasks.poll();
-            if (range != null && !refsPageCollector.contains(range.toString())) {
-                if (read == -1) {
-                    remaining -= refsPageCollector.values().size();
-                    read = 0;
+            if (processingTasks.size() < 1000) {
+                final Pair<Integer, Integer> range = tasks.poll();
+                if (range != null && !refsPageCollector.contains(range.toString())) {
+                    if (read == -1) {
+                        remaining -= refsPageCollector.values().size();
+                        read = 0;
+                    }
+                    //call
+                    ReferenceCollector collector = new ReferenceCollector(this.notSecure, keyword, range.left(), range.right());
+                    Future<List<String>> future = executor.submit(collector);
+                    processingTasks.put(range, future);
+                    ages.put(future, collector);
                 }
-                //call
-                ReferenceCollector collector = new ReferenceCollector(this.notSecure, keyword, range.left(), range.right());
-                Future<List<String>> future = executor.submit(collector);
-                processingTasks.put(range, future);
-                ages.put(future, collector);
             }
             //processing started, checking results;
             Iterator<Map.Entry<Pair<Integer, Integer>, Future<List<String>>>> processingIterator = processingTasks.entrySet().iterator();
@@ -266,15 +280,23 @@ public class Dispatcher extends Thread {
                         last.add(Calendar.MINUTE, min);
                         last.add(Calendar.HOUR, hour);
 
-                        logger.info("user: step(1/2) read " + read + ", refs will be collected in " + word + ", near " + last + ", remaining " + (remaining - read) + " references from " + companies);
+                        logger.info("user: step(1/2) read " + read +
+                                ", refs will be collected in " + word +
+                                ", near " + last + ", remaining " +
+                                (remaining - read) + " references from " +
+                                companies + ", current speed " +
+                                (int) (60 / speed) + " per minute");
                         processingIterator.remove();
                         ages.remove(taskFuture);
                     } else {
                         ReferenceCollector collector = ages.get(taskFuture);
                         if (collector != null) {
-                            if (collector.waiting() && collector.age() > 60) {
+                            if (collector.waiting() && collector.age() > 120) {
                                 taskFuture.cancel(true);
+                                collector.kill();
                                 ages.remove(taskFuture);
+                                tasks.add(taskRange);
+                                processingIterator.remove();
                             }
                         }
                     }
@@ -294,7 +316,7 @@ public class Dispatcher extends Thread {
         return read;
     }
 
-    public int countAllPages(final String keyword, final String login, final String password) throws Exception {
+    public int countResults(final String keyword, final String login, final String password) throws Exception {
         boolean success = true;
         do {
             WebDriver driver = this.secure.driver();
@@ -312,8 +334,8 @@ public class Dispatcher extends Thread {
                 }
                 kompass.searchPage();
                 kompass.search(keyword);
-                int pages = kompass.countPages();
-                return pages;
+                int results = kompass.countResults();
+                return results;
             } catch (Throwable e) {
                 logger.error("user:can not count pages ", e);
                 success = false;

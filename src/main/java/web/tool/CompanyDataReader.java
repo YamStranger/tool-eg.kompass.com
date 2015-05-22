@@ -27,6 +27,8 @@ public class CompanyDataReader implements Callable<Company> {
     private String password;
     private boolean waiting;
     private final Dates created;
+    private Thread thread;
+    private boolean killed = false;
 
 
     public CompanyDataReader(final String url, final WebDriverHub hub) {
@@ -51,31 +53,45 @@ public class CompanyDataReader implements Callable<Company> {
         return this.created.difference(new Dates(), Calendar.SECOND);
     }
 
-    @Override
-    public Company call() throws Exception {
-        final WebDriver driver = this.hub.driver(); //waits until new one available
-        final WebDriverWait wait = this.hub.driverWait(driver);
-        waiting = false;
-        logger.trace("CompanyDataReader started");
-        final Kompass kompass = new Kompass(driver, wait);
-        try {
+    public synchronized void kill() {
+        this.killed = true;
+        if (this.thread != null) {
+            this.thread.interrupt();
+            this.thread.stop();
+        }
+    }
 
-            boolean isLogined = false;
-            if (this.needLogin && !kompass.isLogged()) {
-                try {
-                    kompass.login(this.login, this.password);
-                    isLogined = true;
-                } catch (Exception e) {
-                    isLogined = false;
-                    logger.info("user:Login/password error, trying without authorization");
+
+    @Override
+    public synchronized Company call() throws Exception {
+        if (!killed) {
+            this.thread = Thread.currentThread();
+            final WebDriver driver = this.hub.driver(); //waits until new one available
+            final WebDriverWait wait = this.hub.driverWait(driver);
+            waiting = false;
+            logger.trace("CompanyDataReader started");
+            final Kompass kompass = new Kompass(driver, wait);
+            try {
+
+                boolean isLogined = false;
+                if (this.needLogin && !kompass.isLogged()) {
+                    try {
+                        kompass.login(this.login, this.password);
+                        isLogined = true;
+                    } catch (Exception e) {
+                        isLogined = false;
+                        logger.info("user:Login/password error, trying without authorization");
+                    }
                 }
+                kompass.navigate(url);
+                final Companies reader = new Companies(kompass, isLogined);
+                final Company company = reader.load();
+                return company;
+            } finally {
+                kompass.quit();
             }
-            kompass.navigate(url);
-            final Companies reader = new Companies(kompass, isLogined);
-            final Company company = reader.load();
-            return company;
-        } finally {
-            kompass.quit();
+        } else {
+            throw new InterruptedException("killed");
         }
     }
 }
