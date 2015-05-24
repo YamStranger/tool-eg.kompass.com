@@ -167,7 +167,7 @@ public class Dispatcher extends Thread {
                                 }
                             }
                             word = String.valueOf(hour) + " : " + min + " : " + takesS;
-                            last.add(Calendar.SECOND, seconds);
+                            last.add(Calendar.SECOND, takesS);
                             last.add(Calendar.MINUTE, min);
                             last.add(Calendar.HOUR, hour);
                             logger.info("user: step(2/2) read " + read +
@@ -276,7 +276,7 @@ public class Dispatcher extends Thread {
                             }
                         }
                         word = String.valueOf(hour) + " : " + min + " : " + takesS;
-                        last.add(Calendar.SECOND, seconds);
+                        last.add(Calendar.SECOND, takesS);
                         last.add(Calendar.MINUTE, min);
                         last.add(Calendar.HOUR, hour);
 

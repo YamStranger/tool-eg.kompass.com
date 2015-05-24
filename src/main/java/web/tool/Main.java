@@ -233,13 +233,13 @@ public class Main {
         WebDriverWait wait = new WebDriverWait(driver, pageLoadTime);
         Kompass kompass = new Kompass(driver, wait);
         logger.info("user:check credentials");
-        kompass.login(login, password);
+/*        kompass.login(login, password);
         if (!kompass.isLogged()) {
             kompass.quit();
             logger.error("user:can not work with incorrect login and password");
             return;
         }
-        kompass.quit();
+        kompass.quit();*/
         logger.info("user:start search");
 /*        String session = keyword;
         session.replaceAll("\\W+", "");*/
