@@ -19,10 +19,7 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Calendar;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -62,6 +59,7 @@ public class Main {
         String MAX_PAGE_LOAD_TIME = "max_page_load_time";
         String REMOTE = "remote";
         String REUSE_BROWSERS = "reuse_browsers";
+        String SELENIUM_SERVER = "server";
 
         String config = arguments.get(CONFIG);
         if (config == null || config.isEmpty()) {
@@ -80,6 +78,7 @@ public class Main {
         logger.info("user:-" + MAX_PAGE_LOAD_TIME);
         logger.info("user:-" + REMOTE);
         logger.info("user:-" + REUSE_BROWSERS);
+        logger.info("user:-" + SELENIUM_SERVER);
 
         logger.info("user:Read:");
         Path configFile = Paths.get(config);
@@ -123,6 +122,8 @@ public class Main {
                 writer.newLine();
                 writer.write("-" + REUSE_BROWSERS + "=false");
                 writer.newLine();
+                writer.write("-" + SELENIUM_SERVER + "=false");
+                writer.newLine();
 
 
                 writer.flush();
@@ -146,6 +147,7 @@ public class Main {
         String maxPageLoadTime = arguments.get(MAX_PAGE_LOAD_TIME);
         String remote = arguments.get(REMOTE);
         String reuse = arguments.get(REUSE_BROWSERS);
+        String server = arguments.get(SELENIUM_SERVER);
 
         if ((keywordFile == null || keywordFile.isEmpty()) ||
                 (login == null || login.isEmpty()) ||
@@ -155,9 +157,8 @@ public class Main {
                 (maxPageLoadTime == null || maxPageLoadTime.isEmpty()) ||
                 (remote == null || remote.isEmpty()) ||
                 (reuse == null || reuse.isEmpty()) ||
-                (notLogInInstances == null || notLogInInstances.isEmpty())
-
-
+                (notLogInInstances == null || notLogInInstances.isEmpty()) ||
+                (server == null || server.isEmpty())
                 ) {
             logger.error("user:please specify all params");
             return;
@@ -192,21 +193,25 @@ public class Main {
             logger.error("user:" + LOGIN_INSTANCES + " it not number");
             return;
         }
+        logger.info("user:" + LOGIN_INSTANCES + " =" + numberLogIn);
         int numberNotLogIn = 1;
         try {
-            numberNotLogIn = Integer.valueOf(numberNotLogIn);
+            numberNotLogIn = Integer.valueOf(notLogInInstances);
         } catch (Exception e) {
             logger.error("user:" + NOT_LOGIN_INSTANCES + " it not number");
             return;
         }
+        logger.info("user:" + NOT_LOGIN_INSTANCES + " =" + numberNotLogIn);
 
-        int pageLoadTime = 1;
+        int pageLoadTime = 30;
         try {
             pageLoadTime = Integer.valueOf(maxPageLoadTime);
         } catch (Exception e) {
             logger.info("user:" + MAX_PAGE_LOAD_TIME + " it not number");
             return;
         }
+        logger.info("user:" + MAX_PAGE_LOAD_TIME + " =" + pageLoadTime);
+
         boolean isRemote = Boolean.valueOf(remote);
         logger.info("user:Using " + (isRemote ? "remote" : "local") + " browser");
 
@@ -217,43 +222,51 @@ public class Main {
             logger.info("user:Creating new instance of browser every time");
 
         }
+        System.out.println("using server \"" + server + "\"");
+        String[] servers = server.split(";");
+        LinkedList<String> list = new LinkedList<>();
+        list.addAll(Arrays.asList(servers));
+        System.out.println("using servers " + Arrays.toString(servers));
         Dates start = new Dates();
-        WebDriverHub notSecure = new WebDriverHub(isReusable, isRemote);
-        if (!isRemote) {
-            notSecure.available(numberNotLogIn);
-        }
-        WebDriverHub secure = new WebDriverHub(isReusable, isRemote);
+        WebDriverHub notSecure = new WebDriverHub(isReusable, isRemote, list, pageLoadTime);
+        notSecure.available(numberNotLogIn);
+        WebDriverHub secure = new WebDriverHub(isReusable, isRemote, list, pageLoadTime);
         secure.available(numberLogIn);
+        try {
 
+            BlockingQueue<Item> results = new LinkedBlockingQueue<Item>(1000);
 
-        BlockingQueue<Item> results = new LinkedBlockingQueue<Item>(1000);
-
-        //checking if password are correct
-        WebDriver driver = secure.driver();
-        WebDriverWait wait = new WebDriverWait(driver, pageLoadTime);
-        Kompass kompass = new Kompass(driver, wait);
-        logger.info("user:check credentials");
-/*        kompass.login(login, password);
-        if (!kompass.isLogged()) {
+            //checking if password are correct
+            WebDriver driver = secure.driver();
+            WebDriverWait wait = secure.driverWait(driver);
+            Kompass kompass = new Kompass(driver, wait);
+            logger.info("user:check credentials");
+            kompass.login(login, password);
+            if (!kompass.isLogged()) {
+                kompass.quit();
+                logger.error("user:can not work with incorrect login and password");
+                return;
+            }
             kompass.quit();
-            logger.error("user:can not work with incorrect login and password");
-            return;
-        }
-        kompass.quit();*/
-        logger.info("user:start search");
+            logger.info("user:start search");
 /*        String session = keyword;
         session.replaceAll("\\W+", "");*/
-        Path result = Paths.get(session + "_companies.csv");
-        CSVStorage storage = new CSVStorage(result, results, true);
-        storage.start();
-        Dispatcher dispatcher = new Dispatcher(session, keyword, login, password, results, numberNotLogIn + numberLogIn, secure, notSecure);
-        dispatcher.start();
-        dispatcher.join();
-        logger.info("user:done, takes " + new Dates().difference(start, Calendar.SECOND) + " seconds");
-        dispatcher.interrupt();
-        storage.interrupt();
-        secure.quit();
-        notSecure.quit();
+            Path result = Paths.get(session + "_companies.csv");
+            CSVStorage storage = new CSVStorage(result, results, true);
+            storage.start();
+            DispatcherNew dispatcher = new DispatcherNew(session, keyword, login, password, results, Math.max(numberNotLogIn, numberLogIn), secure, notSecure);
+            dispatcher.start();
+            dispatcher.join();
+            logger.info("user:done, takes " + new Dates().difference(start, Calendar.SECOND) + " seconds");
+/*            dispatcher.interrupt();
+            storage.interrupt();*/
+            secure.quit();
+            notSecure.quit();
+            System.out.println("quit");
+        } finally {
+            notSecure.quit();
+            secure.quit();
+        }
         return;
     }
 }

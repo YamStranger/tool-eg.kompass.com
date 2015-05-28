@@ -57,7 +57,7 @@ public class CompanyDataReader implements Callable<Company> {
         this.killed = true;
         if (this.thread != null) {
             this.thread.interrupt();
-            this.thread.stop();
+       //     this.thread.stop();
         }
     }
 
@@ -80,7 +80,7 @@ public class CompanyDataReader implements Callable<Company> {
                         isLogined = true;
                     } catch (Exception e) {
                         isLogined = false;
-                        logger.info("user:Login/password error, trying without authorization");
+                        logger.info("Login/password error, trying without authorization");
                     }
                 }
                 kompass.navigate(url);

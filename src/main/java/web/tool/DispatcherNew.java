@@ -1,8 +1,6 @@
 package web.tool;
 
 import date.Dates;
-import general.Pair;
-import general.RangeGenerator;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import org.slf4j.Logger;
@@ -10,7 +8,6 @@ import org.slf4j.LoggerFactory;
 import selenium.WebDriverHub;
 import storage.Item;
 import storage.KeyHolder;
-import storage.RowsReader;
 import web.tool.eg.kompass.com.Company;
 import web.tool.eg.kompass.com.Kompass;
 
@@ -19,17 +16,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 
 /**
  * User: YamStranger
- * Date: 5/16/15
- * Time: 12:59 AM
+ * Date: 5/26/15
+ * Time: 6:15 PM
  */
-public class Dispatcher extends Thread {
+public class DispatcherNew extends Thread {
     private final BlockingQueue<Item> results;
     private final WebDriverHub secure;
     private final WebDriverHub notSecure;
@@ -37,44 +31,59 @@ public class Dispatcher extends Thread {
     private String keyword;
     private String login;
     private String password;
-    private final ExecutorService executor;
+    private final ExecutorService refsExecutor;
+    private final ExecutorService companyExecutor;
+    private final BlockingQueue<String> refs;
+
     private final String session;
     private static final Logger logger = LoggerFactory.getLogger(Dispatcher.class);
+    private int threads;
+    public static boolean finished;
 
-    public Dispatcher(String session, String keyword, String login, String password, BlockingQueue<Item> results, int threads, WebDriverHub secure, WebDriverHub notSecure) {
+    public DispatcherNew(String session, String keyword, String login, String password, BlockingQueue<Item> results, int threads, WebDriverHub secure, WebDriverHub notSecure) {
         this.results = results;
         this.keyword = keyword;
         this.login = login;
         this.password = password;
-        this.executor = Executors.newFixedThreadPool(threads);
+        this.refsExecutor = Executors.newFixedThreadPool(threads);
+        this.companyExecutor = Executors.newFixedThreadPool(threads);
         this.session = session;
         this.secure = secure;
         this.notSecure = notSecure;
-
+        this.threads = threads;
+        this.refs = new LinkedBlockingQueue<>(threads);
     }
 
     @Override
     public void run() {
         try {
+            finished = false;
             logger.info("user:start search \"" + this.keyword + '"' + ", session=\"" + this.session + '"');
-
-
             final int companies = countResults(this.keyword, this.login, this.password);
             int pages = (int) Math.ceil(((double) companies) / ((double) 20));
             //197514
             Path allRefs = Paths.get(session + "known_references.bin");
             //loading refs
-            this.readRefs(allRefs, pages, companies, keyword, this.session, executor);
+            //this.readRefs(allRefs, pages, companies, keyword, this.session, refsExecutor);
+            RefsDispatcher refs = new RefsDispatcher(this.session, allRefs, pages, companies, keyword, this.notSecure, this.threads, this.refs);
+            refs.start();
+            logger.info("user:started ref collector in parallel " + companies);
+/*
+
             logger.info("user:updated number of companies " + companies);
+*/
 
             //loading data
             this.readCompanies(allRefs, this.login, this.password, this.session,
-                    this.executor, companies, results);
+                    this.refsExecutor, companies, results);
+            System.out.println("finished, please check results");
             try {
                 Files.delete(allRefs);
             } catch (IOException e) {
                 logger.error("exception during removing refs");
             }
+            refs.join();
+            refs.interrupt();
         } catch (Exception e) {
             logger.error("error", e);
         }
@@ -83,49 +92,68 @@ public class Dispatcher extends Thread {
     public void readCompanies(final Path allRefs, final String login,
                               final String password, final String session,
                               final ExecutorService executor, final int companies,
-                              final BlockingQueue<Item> results) {
+                              final BlockingQueue<Item> results) throws InterruptedException {
         final Path knownCompanies = Paths.get(session + "known_companies.bin");
         final KeyHolder companiesCollector = new KeyHolder(knownCompanies);
-        RowsReader rowsReader = new RowsReader(allRefs);
-        Iterator<String> rows = rowsReader.iterator();
+//        RowsReader rowsReader = new RowsReader(allRefs);
+//        Iterator<String> rows = rowsReader.iterator();
 
         //read all companies ref by ref
         Dates starts = new Dates();
         final Map<String, Future<Company>> processingTasks = new HashMap<>();
         Queue<String> failed = new LinkedList<>();
+        Map<String, Integer> tryes = new HashMap<>();
         Queue<String> privates = new LinkedList<>();
         final Map<Future, CompanyDataReader> ages = new HashMap<>();
 
         int read = -1;
         int remaining = companies;
-        while (rows.hasNext() || !processingTasks.isEmpty()) {
-            if (processingTasks.size() < 1000) {
-                if (rows.hasNext()) {
-                    final String url = rows.next();
-                    if (!companiesCollector.contains(url)) {
+
+        while (!processingTasks.isEmpty() || !failed.isEmpty() || !privates.isEmpty() || !finished) {
+            if (processingTasks.size() < this.threads) {
+                String urlCollected = null;
+                if ((urlCollected = this.refs.poll(50, TimeUnit.SECONDS)) != null) {
+//                    final String url = rows.next();
+                    if (!companiesCollector.contains(urlCollected)) {
                         if (read == -1) {
                             remaining -= companiesCollector.values().size();
                             read = 0;
                         }
                         //start processing url as public company
-                        CompanyDataReader reader = new CompanyDataReader(url, this.secure, login, password);
+                        CompanyDataReader reader = new CompanyDataReader(urlCollected, this.secure, login, password);
                         Future<Company> future = executor.submit(reader);
-                        processingTasks.put(url, future);
+                        processingTasks.put(urlCollected, future);
                         ages.put(future, reader);
                     } else {
-                        logger.info("skip as known " + url);
+                        logger.info("skip as known " + urlCollected);
                     }
                 }
-
 
                 while (!failed.isEmpty()) {
                     //restart failed
                     final String url = failed.poll();
-                    //start processing url as private company
-                    CompanyDataReader reader = new CompanyDataReader(url, this.secure, login, password);
-                    Future<Company> future = executor.submit(reader);
-                    processingTasks.put(url, future);
-                    ages.put(future, reader);
+                    if (url != null) {
+                        Integer age = tryes.get(url);
+                        if (age == null) {
+                            age = 0;
+                            logger.error("failed age == null");
+                            tryes.put(url, age);
+                        }
+                        if (age > 10) {
+                            logger.info("skip " + url + "as with error");
+                            tryes.remove(url);
+                            failed.remove(url);
+                        } else {
+                            //start processing url as private company
+                            CompanyDataReader reader = new CompanyDataReader(url, this.secure, login, password);
+                            Future<Company> future = executor.submit(reader);
+                            processingTasks.put(url, future);
+                            ages.put(future, reader);
+                            tryes.put(url, age + 1);
+                        }
+                    }else{
+                        logger.error("failed url == null");
+                    }
                 }
 
                 while (!privates.isEmpty()) {
@@ -179,6 +207,7 @@ public class Dispatcher extends Thread {
                             processingIterator.remove();
                             results.put(company);
                             ages.remove(future);
+                            tryes.remove(url);
                         } else {
                             logger.info("company  " + url + " is marked as private");
                             privates.add(company.url);
@@ -191,6 +220,7 @@ public class Dispatcher extends Thread {
                                 collector.kill();
                                 ages.remove(future);
                                 failed.add(url);
+                                tryes.put(url, 0);
                                 processingIterator.remove();
                             }
                         }
@@ -204,6 +234,7 @@ public class Dispatcher extends Thread {
 
 
         }
+        logger.info("user:reading of companies finished");
         try {
             Files.delete(knownCompanies);
         } catch (IOException e) {
@@ -211,7 +242,7 @@ public class Dispatcher extends Thread {
         }
     }
 
-    public int readRefs(Path allRefs, int pages, int companies, String keyword, String session, ExecutorService executor) {
+ /*   public int readRefs(Path allRefs, int pages, int companies, String keyword, String session, ExecutorService executor) {
         KeyHolder refCollector = new KeyHolder(allRefs);
         Path knownPages = Paths.get(session + "known_pages.bin");
         KeyHolder refsPageCollector = new KeyHolder(knownPages);
@@ -314,7 +345,7 @@ public class Dispatcher extends Thread {
             logger.error("can not delete file " + knownPages.toAbsolutePath());
         }
         return read;
-    }
+    }*/
 
     public int countResults(final String keyword, final String login, final String password) throws Exception {
         boolean success = true;
